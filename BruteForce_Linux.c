@@ -2,27 +2,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
-#include <windows.h>//for windows version
 #include <omp.h>
-
-//这个算法真正意义上O(M*N)的复杂度，由于计算哈希有循环依赖，内层循环不能并行化
+//此文件的说明：虽然定义上这个函数的复杂度为O(M*n),但是实际上因为内层循环的break的出现，导致了可能第一个字符就不匹配，实际复杂度为O(M-Tmiss+Tmiss*N)，超过4个核心之后加速比一直在2左右不成线形 同时也因为break的出现，导致在并行方法中内层循环无法并行化
 typedef struct index_node
 {
     int index;
     struct index_node * next;
 } index_node;
 
-unsigned int GetHash(const char *str)
-{
-    unsigned int hash = 1315423911;
-
-    while (*str)
-    {
-        hash ^= ((hash << 5) + (*str++) + (hash >> 2));
-    }
-
-    return (hash & 0x7FFFFFFF);
-}
 index_node* BruteForce(const char* str, const char* match){
     int lenstr = strlen(str);
     int lenmat = strlen(match);
@@ -30,13 +17,15 @@ index_node* BruteForce(const char* str, const char* match){
     head->next = NULL;
     head->index = -1;
     index_node *p = head;
-    int hashmat = GetHash(match);
     for (int i = 0; i <= lenstr-lenmat; i++){
-        char target[lenmat+1];
-        strncpy(target, str+i,lenmat);
-        target[lenmat] = '\0';
-        int hashstr = GetHash(target);
-        if(hashstr == hashmat){
+        int status = 1; //乐观锁
+        for(int j = 0; j < lenmat; j++){
+            if(str[i+j] != match[j]){
+                status = 0;
+                break;
+            }
+        }
+        if(status == 1){
             index_node *node = (index_node *)malloc(sizeof(index_node));
             node->index = i;
             p->next = node;
@@ -55,21 +44,37 @@ index_node* BruteForceOpenMP(const char* str, const char* match, int core_count)
     head->next = NULL;
     head->index = -1;
     index_node *p = head;
-    int hashmat = GetHash(match);
+
 #pragma omp parallel for shared(p)
-    for (int i = 0; i <= lenstr-lenmat; i++){
-        char target[lenmat+1];
-        strncpy(target, str+i,lenmat);
-        target[lenmat] = '\0';
-        int hashstr = GetHash(target);
-        if(hashstr == hashmat){
-            index_node *node = (index_node *)malloc(sizeof(index_node));
-            node->index = i;
-            p->next = node;
-            p = p->next;
-            p->next=NULL;
+        for (int i = 0; i <= lenstr - lenmat; i++) {
+            int status = 1; //本次定位的乐观锁
+
+//following code will deal the inside loop with parallel mode, But actually it costs more time, because it is using a shared parameter and each loop will be executed with a following condition judgement.
+/*#pragma omp parallel for shared(status)
+            for (int j = 0; j < lenmat; j++) {
+                if(status == 0) continue;
+                if (str[i + j] != match[j]) {
+                    status = 0;
+                }
+            }
+            if (status == 1) {
+                index = i;
+            }
+        }*/
+            for (int j = 0; j < lenmat; j++) {
+                if (str[i + j] != match[j]) {
+                    status = 0;
+                    break;
+                }
+            }
+            if (status == 1) {
+                index_node *node = (index_node *) malloc(sizeof(index_node));
+                node->index = i;
+                p->next = node;
+                p = p->next;
+                p->next = NULL;
+            }
         }
-    }
     return head;
 }
 int main(){
@@ -78,23 +83,21 @@ int main(){
     fp=fopen("bbe.txt","r");
     fseek(fp,0L,SEEK_END);
     int size=ftell(fp);
-    char* str =(char *)malloc(size); // 根据文件大小动态分配内存空间
+    char* str =(char *)malloc(size); /* 根据文件大小动态分配内存空间 */
     if(str==NULL){
         fclose(fp);
         return 0;
-    }
+        }
     fseek(fp,0L,SEEK_SET);
     fread(str,size,1,fp);
     fclose(fp);
 
-    //for windows version counter
-    LARGE_INTEGER nBeginTime1;
-    LARGE_INTEGER nBeginTime2;
-    LARGE_INTEGER nEndTime1;
-    LARGE_INTEGER nEndTime2;
-    LARGE_INTEGER nFreq;
-    QueryPerformanceFrequency(&nFreq); //CPU 频率
-    printf("%s","\n\n------------------------Start matching------------------------\n\n");
+    //for Linux version counter
+    struct timeval nBeginTime1;
+    struct timeval nBeginTime2;
+    struct timeval nEndTime1;
+    struct timeval nEndTime2;
+    printf("%s","\n\n------------------------Long words matching compare------------------------\n\n");
     const char* match = "\n"
                         "Psm 70:1 &lt;To the chief music-maker. Of David. To keep in memory.&gt; Let your salvation come quickly, O God; come quickly to my help, O Lord.\n"
                         "Psm 70:2 Let those who go after my soul have shame and trouble; let those who have evil designs against me be turned back and made foolish.\n"
@@ -125,9 +128,9 @@ int main(){
                         "Psm 71:22 I will give praise to you with instruments of music, O my God, for you are true; I will make songs to you with music, O Holy One of Israel.\n"
                         "Psm 71:23 Joy will be on my lips when I make melody to you; and in my soul, to which you have given salvation.";
     //No OpenMP BruteForce
-    QueryPerformanceCounter(&nBeginTime1);
+    gettimeofday(&nBeginTime1,NULL);
     index_node *index1 = BruteForce(str, match);
-    QueryPerformanceCounter(&nEndTime1);
+    gettimeofday(&nEndTime1,NULL);
     printf("the indexes of match string are in the following (from Bruteforce without OpenMP)\n");
     index1 = index1->next;
     while(index1!=NULL){
@@ -135,26 +138,27 @@ int main(){
         index1 = index1->next;
     }
     //for windows version
-    double time1 = (double)(nEndTime1.QuadPart-nBeginTime1.QuadPart)/(double)nFreq.QuadPart * 1000;
+    double time1 = 1000*(nEndTime1.tv_sec - nBeginTime1.tv_sec) + (nEndTime1.tv_usec - nBeginTime1.tv_usec)/1000;
     printf("time cost without OpenMP was %fms",time1);
     printf("%s","\n-------------------------------------------------\n");
 
     //Multiple cores compare with single core
 
     //With OpenMP BruteForce
-    QueryPerformanceCounter(&nBeginTime2);
-    int cores = 1;
+    gettimeofday(&nBeginTime2,NULL);
+    int cores = 8;
     struct index_node *index2 = BruteForceOpenMP(str, match,cores);
-    QueryPerformanceCounter(&nEndTime2);
+    gettimeofday(&nEndTime2,NULL);
     printf("the indexes of match string are in the following (from Bruteforce without OpenMP)\n");
     index2 = index2->next;
     while(index2!=NULL){
         printf("index: %d\n",index2->index);
         index2 = index2->next;
     }
-    double time2 = (double)(nEndTime2.QuadPart-nBeginTime2.QuadPart)/(double)nFreq.QuadPart * 1000;
-    printf("time cost with OpenMP with %d cores was %fms\n", cores, time2);
-    printf("%s","-------------------------------------------------\n");
+    double time2 = 1000*(nEndTime2.tv_sec - nBeginTime2.tv_sec) + (nEndTime2.tv_usec - nBeginTime2.tv_usec)/1000;
+    printf("time cost with OpenMP with %d cores was %fms\n\n", cores, time2);
     printf("Speed up of long word matching of OpenMP is %f",time1/time2);
     printf("%s","\n----------------------end------------------------\n");
+
+
 }
