@@ -36,7 +36,7 @@ index_node* BruteForce(const char* str, const char* match){
     }
     return head;
 }
-index_node* BruteForceOpenMP(const char* str, const char* match, int core_count){
+index_node* BruteForceOpenMPStatic(const char* str, const char* match, int core_count){
     int lenstr = strlen(str);
     int lenmat = strlen(match);
     int index = -1;
@@ -46,7 +46,7 @@ index_node* BruteForceOpenMP(const char* str, const char* match, int core_count)
     head->index = -1;
     index_node *p = head;
 
-#pragma omp parallel for shared(p)
+#pragma omp parallel for schedule(static)
         for (int i = 0; i <= lenstr - lenmat; i++) {
             int status = 1; //本次定位的乐观锁
 
@@ -78,6 +78,48 @@ index_node* BruteForceOpenMP(const char* str, const char* match, int core_count)
         }
     return head;
 }
+index_node* BruteForceOpenMPDynamic(const char* str, const char* match, int core_count){
+    int lenstr = strlen(str);
+    int lenmat = strlen(match);
+    int index = -1;
+    omp_set_num_threads(core_count);
+    index_node *head = (index_node *)malloc(sizeof(index_node));
+    head->next = NULL;
+    head->index = -1;
+    index_node *p = head;
+
+#pragma omp parallel for schedule(dynamic)
+    for (int i = 0; i <= lenstr - lenmat; i++) {
+        int status = 1; //本次定位的乐观锁
+
+//following code will deal the inside loop with parallel mode, But actually it costs more time, because it is using a shared parameter and each loop will be executed with a following condition judgement.
+/*#pragma omp parallel for shared(status)
+            for (int j = 0; j < lenmat; j++) {
+                if(status == 0) continue;
+                if (str[i + j] != match[j]) {
+                    status = 0;
+                }
+            }
+            if (status == 1) {
+                index = i;
+            }
+        }*/
+        for (int j = 0; j < lenmat; j++) {
+            if (str[i + j] != match[j]) {
+                status = 0;
+                break;
+            }
+        }
+        if (status == 1) {
+            index_node *node = (index_node *) malloc(sizeof(index_node));
+            node->index = i;
+            p->next = node;
+            p = p->next;
+            p->next = NULL;
+        }
+    }
+    return head;
+}
 int main(){
     //prepare the file into memory
     FILE*fp;
@@ -92,12 +134,14 @@ int main(){
     fseek(fp,0L,SEEK_SET);
     fread(str,size,1,fp);
     fclose(fp);
-
+    int cores = 8;
     //for windows version counter
     LARGE_INTEGER nBeginTime1;
     LARGE_INTEGER nBeginTime2;
+    LARGE_INTEGER nBeginTime3;
     LARGE_INTEGER nEndTime1;
     LARGE_INTEGER nEndTime2;
+    LARGE_INTEGER nEndTime3;
     LARGE_INTEGER nFreq;
     QueryPerformanceFrequency(&nFreq); //CPU 频率
     printf("%s","\n\n------------------------Long words matching compare------------------------\n\n");
@@ -143,25 +187,38 @@ int main(){
     //for windows version
     double time1 = (double)(nEndTime1.QuadPart-nBeginTime1.QuadPart)/(double)nFreq.QuadPart * 1000;
     printf("time cost without OpenMP was %fms",time1);
-    printf("%s","\n-------------------------------------------------\n");
 
     //Multiple cores compare with single core
 
-    //With OpenMP BruteForce
+    //With OpenMP BruteForce Static Schedule
+    printf("%s","\n-------------------------------------------------\n");
     QueryPerformanceCounter(&nBeginTime2);
-    int cores = 8;
-    struct index_node *index2 = BruteForceOpenMP(str, match,cores);
+    struct index_node *index2 = BruteForceOpenMPStatic(str, match,cores);
     QueryPerformanceCounter(&nEndTime2);
-    printf("the indexes of match string are in the following (from Bruteforce without OpenMP)\n");
+    printf("the indexes of match string are in the following (from Bruteforce with OpenMP)\n");
     index2 = index2->next;
     while(index2!=NULL){
         printf("index: %d\n",index2->index);
         index2 = index2->next;
     }
     double time2 = (double)(nEndTime2.QuadPart-nBeginTime2.QuadPart)/(double)nFreq.QuadPart * 1000;
-    printf("time cost with OpenMP with %d cores was %fms\n\n", cores, time2);
-    printf("Speed up of long word matching of OpenMP is %f",time1/time2);
+    printf("time cost with OpenMP with %d cores was %fms\n", cores, time2);
+    printf("Speed up of long word matching of OpenMP(Static Schedule) is %f",time1/time2);
+    //With OpenMP BruteForce Dynamic Schedule
+    printf("%s","\n-------------------------------------------------\n");
+
+    //With OpenMP BruteForce Dynamic Schedule
+    QueryPerformanceCounter(&nBeginTime3);
+    struct index_node *index3 = BruteForceOpenMPDynamic(str, match,cores);
+    QueryPerformanceCounter(&nEndTime3);
+    printf("the indexes of match string are in the following (from Bruteforce with OpenMP)\n");
+    index3 = index3->next;
+    while(index3!=NULL){
+        printf("index: %d\n",index3->index);
+        index3 = index3->next;
+    }
+    double time3 = (double)(nEndTime3.QuadPart-nBeginTime3.QuadPart)/(double)nFreq.QuadPart * 1000;
+    printf("time cost with OpenMP with %d cores was %fms\n", cores, time3);
+    printf("Speed up of long word matching of OpenMP(Dynamic Schedule) is %f",time1/time3);
     printf("%s","\n----------------------end------------------------\n");
-
-
 }

@@ -45,7 +45,7 @@ index_node* BruteForce(const char* str, const char* match){
     }
     return head;
 }
-index_node* BruteForceOpenMP(const char* str, const char* match, int core_count){
+index_node* BruteForceOpenMPStatic(const char* str, const char* match, int core_count){
     int lenstr = strlen(str);
     int lenmat = strlen(match);
     int index = -1;
@@ -55,7 +55,33 @@ index_node* BruteForceOpenMP(const char* str, const char* match, int core_count)
     head->index = -1;
     index_node *p = head;
     int hashmat = GetHash(match);
-#pragma omp parallel for shared(p)
+#pragma omp parallel for schedule(static)
+    for (int i = 0; i <= lenstr-lenmat; i++){
+        char target[lenmat+1];
+        strncpy(target, str+i,lenmat);
+        target[lenmat] = '\0';
+        int hashstr = GetHash(target);
+        if(hashstr == hashmat){
+            index_node *node = (index_node *)malloc(sizeof(index_node));
+            node->index = i;
+            p->next = node;
+            p = p->next;
+            p->next=NULL;
+        }
+    }
+    return head;
+}
+index_node* BruteForceOpenMPDynamic(const char* str, const char* match, int core_count){
+    int lenstr = strlen(str);
+    int lenmat = strlen(match);
+    int index = -1;
+    omp_set_num_threads(core_count);
+    index_node *head = (index_node *)malloc(sizeof(index_node));
+    head->next = NULL;
+    head->index = -1;
+    index_node *p = head;
+    int hashmat = GetHash(match);
+#pragma omp parallel for schedule(dynamic)
     for (int i = 0; i <= lenstr-lenmat; i++){
         char target[lenmat+1];
         strncpy(target, str+i,lenmat);
@@ -77,7 +103,7 @@ int main(){
     fp=fopen("bbe.txt","r");
     fseek(fp,0L,SEEK_END);
     int size=ftell(fp);
-    char* str =(char *)malloc(size); // 根据文件大小动态分配内存空间
+    char* str =(char *)malloc(size); /* 根据文件大小动态分配内存空间 */
     if(str==NULL){
         fclose(fp);
         return 0;
@@ -85,13 +111,15 @@ int main(){
     fseek(fp,0L,SEEK_SET);
     fread(str,size,1,fp);
     fclose(fp);
-
+    int cores = 8;
     //for Linux version counter
     struct timeval nBeginTime1;
     struct timeval nBeginTime2;
+    struct timeval nBeginTime3;
     struct timeval nEndTime1;
     struct timeval nEndTime2;
-    printf("%s","\n\n------------------------Start matching------------------------\n\n");
+    struct timeval nEndTime3;
+    printf("%s","\n\n------------------------Long words matching compare------------------------\n\n");
     const char* match = "\n"
                         "Psm 70:1 &lt;To the chief music-maker. Of David. To keep in memory.&gt; Let your salvation come quickly, O God; come quickly to my help, O Lord.\n"
                         "Psm 70:2 Let those who go after my soul have shame and trouble; let those who have evil designs against me be turned back and made foolish.\n"
@@ -138,12 +166,11 @@ int main(){
 
     //Multiple cores compare with single core
 
-    //With OpenMP BruteForce
+    //With Static OpenMP BruteForce
     gettimeofday(&nBeginTime2,NULL);
-    int cores = 8;
-    struct index_node *index2 = BruteForceOpenMP(str, match,cores);
+    struct index_node *index2 = BruteForceOpenMPStatic(str, match,cores);
     gettimeofday(&nEndTime2,NULL);
-    printf("the indexes of match string are in the following (from Bruteforce with OpenMP)\n");
+    printf("the indexes of match string are in the following (from Bruteforce with OpenMP(Static Schedule))\n");
     index2 = index2->next;
     while(index2!=NULL){
         printf("index: %d\n",index2->index);
@@ -152,5 +179,19 @@ int main(){
     double time2 = 1000*(nEndTime2.tv_sec - nBeginTime2.tv_sec) + (nEndTime2.tv_usec - nBeginTime2.tv_usec)/1000;
     printf("time cost with OpenMP with %d cores was %fms\n\n", cores, time2);
     printf("Speed up of long word matching of OpenMP is %f",time1/time2);
+    printf("%s","\n-------------------------------------------------\n");
+    //With Static OpenMP BruteForce
+    gettimeofday(&nBeginTime3,NULL);
+    struct index_node *index3 = BruteForceOpenMPDynamic(str, match,cores);
+    gettimeofday(&nEndTime3,NULL);
+    printf("the indexes of match string are in the following (from Bruteforce with OpenMP(Dynamic Schedule))\n");
+    index3 = index3->next;
+    while(index3!=NULL){
+        printf("index: %d\n",index3->index);
+        index3 = index3->next;
+    }
+    double time3 = 1000*(nEndTime3.tv_sec - nBeginTime3.tv_sec) + (nEndTime3.tv_usec - nBeginTime3.tv_usec)/1000;
+    printf("time cost with OpenMP with %d cores was %fms\n\n", cores, time3);
+    printf("Speed up of long word matching of OpenMP is %f",time1/time3);
     printf("%s","\n----------------------end------------------------\n");
 }
