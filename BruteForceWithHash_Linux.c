@@ -143,7 +143,7 @@ int main(){
     int cores = 8;
     struct index_node *index2 = BruteForceOpenMP(str, match,cores);
     gettimeofday(&nEndTime2,NULL);
-    printf("the indexes of match string are in the following (from Bruteforce without OpenMP)\n");
+    printf("the indexes of match string are in the following (from Bruteforce with OpenMP)\n");
     index2 = index2->next;
     while(index2!=NULL){
         printf("index: %d\n",index2->index);
