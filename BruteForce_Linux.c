@@ -36,15 +36,27 @@ index_node* BruteForce(const char* str, const char* match){
     return head;
 }
 index_node* BruteForceOpenMPStatic(const char* str, const char* match, int core_count){
-    int lenstr = strlen(str);
-    int lenmat = strlen(match);
-    int index = -1;
     omp_set_num_threads(core_count);
-    index_node *head = (index_node *)malloc(sizeof(index_node));
-    head->next = NULL;
-    head->index = -1;
-    index_node *p = head;
-
+    int lenstr;
+    int lenmat;
+    int index = -1;
+    index_node *head = NULL;
+    index_node *p = NULL;
+#pragma omp parallel sections
+    {
+#pragma omp section
+        {
+            lenstr = strlen(str);
+            lenmat = strlen(match);
+        }
+#pragma omp section
+        {
+            head = (index_node *) malloc(sizeof(index_node));
+            head->next = NULL;
+            head->index = index;
+            p = head;
+        }
+    }
 #pragma omp parallel for schedule(static)
         for (int i = 0; i <= lenstr - lenmat; i++) {
             int status = 1; //本次定位的乐观锁
@@ -77,15 +89,27 @@ index_node* BruteForceOpenMPStatic(const char* str, const char* match, int core_
     return head;
 }
 index_node* BruteForceOpenMPDynamic(const char* str, const char* match, int core_count){
-    int lenstr = strlen(str);
-    int lenmat = strlen(match);
-    int index = -1;
     omp_set_num_threads(core_count);
-    index_node *head = (index_node *)malloc(sizeof(index_node));
-    head->next = NULL;
-    head->index = -1;
-    index_node *p = head;
-
+    int lenstr;
+    int lenmat;
+    int index = -1;
+    index_node *head = NULL;
+    index_node *p = NULL;
+#pragma omp parallel sections
+    {
+#pragma omp section
+        {
+            lenstr = strlen(str);
+            lenmat = strlen(match);
+        }
+#pragma omp section
+        {
+            head = (index_node *) malloc(sizeof(index_node));
+            head->next = NULL;
+            head->index = index;
+            p = head;
+        }
+    }
 #pragma omp parallel for schedule(static)
     for (int i = 0; i <= lenstr - lenmat; i++) {
         int status = 1; //本次定位的乐观锁
