@@ -48,6 +48,9 @@ index_node* BruteForceOpenMPStatic(const char* str, const char* match, int core_
 #pragma omp section
         {
             lenstr = strlen(str);
+        }
+#pragma omp section
+        {
             lenmat = strlen(match);
         }
 #pragma omp section
@@ -102,6 +105,9 @@ index_node* BruteForceOpenMPDynamic(const char* str, const char* match, int core
 #pragma omp section
         {
             lenstr = strlen(str);
+        }
+#pragma omp section
+        {
             lenmat = strlen(match);
         }
 #pragma omp section
